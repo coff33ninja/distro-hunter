@@ -111,7 +111,7 @@
     "prefer_aria2": true,
     "prefer_torrent": false,
     "protect_filename_collisions": true,
-    "retention_keep_latest": 0,
+    "retention_keep_latest": 1,
     "decompress_bz2": true,
     "connections_per_server": 8,
     "split": 8,
