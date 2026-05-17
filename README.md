@@ -14,6 +14,8 @@ Distro Hunter is a Windows-friendly Python tool that automates the discovery, do
 - **Backup & Recovery**: Creates timestamped backups of configuration and plugin files
 - **Validation & Reporting**: Validates downloaded ISOs against current releases and generates detailed reports
 
+> 💡 *Pro tip: Stop torrenting your Linux distros—let Distro Hunter keep your ISOs fresh and legal!*
+
 ## 📦 What's Included
 
 - **Core Engine**: Python modules for discovery, downloading, and Ventoy synchronization
@@ -246,6 +248,10 @@ distro-hunter/
 └── Update-Ventoy.ps1           # Main execution script
 ```
 
+## 🏷️ Versioning
+
+This project uses semantic versioning. Current release: **v0.1.0** (tagged in Git)
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit Pull Requests for:
@@ -280,4 +286,4 @@ Distro Hunter is open source software. See the LICENSE file for details.
 ---
 
 *Last updated: $(Get-Date -Format yyyy-MM-dd)*
-*Version: See pyproject.toml for current release*
+*Version: v0.1.0 (see Git tags for release history)*
