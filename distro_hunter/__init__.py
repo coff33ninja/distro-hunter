@@ -1,0 +1,2 @@
+"""Distro Hunter package."""
+

@@ -1,0 +1,1 @@
+.\.venv\Scripts\python.exe -m distro_hunter --config .\config.example.json tui
