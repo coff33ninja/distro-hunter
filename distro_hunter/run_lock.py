@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from distro_hunter.exceptions import RunLockError
 from distro_hunter.utils import ensure_directory

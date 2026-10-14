@@ -6,11 +6,20 @@ from threading import Event
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, ProgressBar, RichLog, SelectionList, Static
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    ProgressBar,
+    RichLog,
+    SelectionList,
+    Static,
+)
 
 from distro_hunter.backup import create_source_backup
 from distro_hunter.config import load_settings
-from distro_hunter.core import DistroHunter, DiscoverySelection, discovery_rows
+from distro_hunter.core import DiscoverySelection, DistroHunter, discovery_rows
 from distro_hunter.plugin_loader import PluginSpec
 from distro_hunter.utils import human_size
 

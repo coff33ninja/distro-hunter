@@ -8,7 +8,6 @@ from pathlib import Path
 
 from distro_hunter.utils import slugify
 
-
 PLUGIN_PROFILES: dict[str, list[str]] = {
     "desktop": [
         "ubuntu_lts",
@@ -239,7 +238,7 @@ class VentoySettings:
     copy_extensions: list[str] = field(default_factory=lambda: [".iso", ".img"])
     organize_by_plugin: bool = True
     manual_subdir: str = "manual"
-    manual_sources: list["ManualSourceRule"] = field(default_factory=list)
+    manual_sources: list[ManualSourceRule] = field(default_factory=list)
     prune_removed: bool = False
 
 

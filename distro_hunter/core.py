@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fnmatch import fnmatch
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
+from fnmatch import fnmatch
 from pathlib import Path
 from time import perf_counter
 from urllib.parse import urlparse
@@ -21,13 +21,22 @@ from distro_hunter.models import (
     RemoteFileInfo,
     ValidateResult,
 )
-from distro_hunter.plugin_metadata import infer_plugin_metadata, metadata_from_fields, metadata_subdir
 from distro_hunter.plugin_loader import DiscoveryContext, PluginSpec, load_plugins
+from distro_hunter.plugin_metadata import (
+    infer_plugin_metadata,
+    metadata_from_fields,
+    metadata_subdir,
+)
 from distro_hunter.scoring import choose_best, rank_candidates, score_candidate
 from distro_hunter.startup_checks import collect_startup_warnings
 from distro_hunter.state import StateStore
 from distro_hunter.utils import extract_filename
-from distro_hunter.ventoy import detect_ventoy_drive, infer_plugin_subdir, sync_directory_to_ventoy, sync_paths_to_ventoy
+from distro_hunter.ventoy import (
+    detect_ventoy_drive,
+    infer_plugin_subdir,
+    sync_directory_to_ventoy,
+    sync_paths_to_ventoy,
+)
 
 DOCTOR_OK = "ok"
 DOCTOR_NO_CANDIDATES = "no candidates"
@@ -138,9 +147,7 @@ class DistroHunter:
             return False
         if override.include and not all(term in lowered for term in override.include):
             return False
-        if any(term in lowered for term in override.exclude):
-            return False
-        return True
+        return not any(term in lowered for term in override.exclude)
 
     def _discover_plugin(self, plugin_spec: PluginSpec, context: DiscoveryContext) -> DiscoverySelection:
         try:

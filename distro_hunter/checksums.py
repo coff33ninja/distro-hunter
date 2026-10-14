@@ -8,9 +8,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 from distro_hunter.exceptions import ChecksumMismatchError
 from distro_hunter.models import Candidate, ChecksumResult, RemoteFileInfo
-from distro_hunter.url_utils import extract_filename, strip_query_params, get_directory_url
+from distro_hunter.url_utils import (
+    extract_filename,
+    get_directory_url,
+    strip_query_params,
+)
 from distro_hunter.utils import deduplicate
-
 
 ALGORITHM_LENGTHS = {
     "sha512": 128,

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import ctypes
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from distro_hunter.config import VentoySettings
-from distro_hunter.plugin_metadata import PluginMetadata, infer_plugin_metadata, metadata_subdir
+from distro_hunter.plugin_metadata import (
+    PluginMetadata,
+    infer_plugin_metadata,
+    metadata_subdir,
+)
 from distro_hunter.utils import ensure_directory
-
 
 DRIVE_REMOVABLE = 2
 DRIVE_FIXED = 3
@@ -75,7 +78,7 @@ def detect_ventoy_drive(settings: VentoySettings) -> DriveInfo | None:
 
     if not candidates:
         return None
-    return sorted(candidates, key=lambda entry: entry.score, reverse=True)[0]
+    return max(candidates, key=lambda entry: entry.score)
 
 
 def infer_plugin_subdir(plugin_slug: str, metadata: PluginMetadata | None = None) -> Path:

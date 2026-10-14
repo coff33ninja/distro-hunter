@@ -6,7 +6,6 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from distro_hunter.utils import ensure_directory
 
-
 EXCLUDED_PARTS = {"backups", "downloads", "__pycache__"}
 EXCLUDED_SUFFIXES = {".pyc"}
 
@@ -14,9 +13,7 @@ EXCLUDED_SUFFIXES = {".pyc"}
 def should_include(path: Path) -> bool:
     if any(part in EXCLUDED_PARTS for part in path.parts):
         return False
-    if path.suffix.lower() in EXCLUDED_SUFFIXES:
-        return False
-    return True
+    return path.suffix.lower() not in EXCLUDED_SUFFIXES
 
 
 def create_source_backup(root_dir: Path, backup_dir: Path | None = None) -> Path:

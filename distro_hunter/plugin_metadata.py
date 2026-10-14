@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-
 ARCH_ALIASES = {
     "arm": "arm64",
     "x64": "x86_64",

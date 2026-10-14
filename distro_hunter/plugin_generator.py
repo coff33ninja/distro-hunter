@@ -12,7 +12,6 @@ from distro_hunter.plugin_loader import DiscoveryContext
 from distro_hunter.utils import ensure_directory, slugify
 from distro_hunter.web import filter_links
 
-
 TOKEN_PATTERNS = [
     (re.compile(r"\d{4}\.\d{2}\.\d{2}"), "DATE"),
     (re.compile(r"\d+\.\d+\.\d+"), "VER"),

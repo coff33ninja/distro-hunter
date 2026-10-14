@@ -6,14 +6,23 @@ from dataclasses import replace
 from pathlib import Path
 from zipfile import ZipFile
 
-from distro_hunter.checksums import ExpectedChecksum, resolve_expected_checksum, verify_file_checksum
+from distro_hunter.checksums import (
+    ExpectedChecksum,
+    resolve_expected_checksum,
+    verify_file_checksum,
+)
 from distro_hunter.config import Settings
 from distro_hunter.exceptions import (
     ChecksumMismatchError,
     ChecksumUnavailableError,
     DownloadAttemptError,
 )
-from distro_hunter.models import Candidate, ChecksumResult, DownloadResult, RemoteFileInfo
+from distro_hunter.models import (
+    Candidate,
+    ChecksumResult,
+    DownloadResult,
+    RemoteFileInfo,
+)
 from distro_hunter.state import StateStore
 from distro_hunter.utils import ensure_directory, extract_filename
 from distro_hunter.web import WebClient

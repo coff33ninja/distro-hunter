@@ -5,7 +5,6 @@ from collections.abc import Iterable
 
 from distro_hunter.models import Candidate
 
-
 GOOD_KEYWORDS = {
     "iso": 4,
     "amd64": 5,

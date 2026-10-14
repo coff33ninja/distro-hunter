@@ -5,8 +5,8 @@ from __future__ import annotations
 import html
 import re
 from pathlib import Path
-from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin as urllib_urljoin
-
+from urllib.parse import urljoin as urllib_urljoin
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 HREF_RE = re.compile(r"""href=["']([^"'#]+)["']""", re.IGNORECASE)
 URL_RE = re.compile(r"""https?://[^\s"'<>]+""", re.IGNORECASE)

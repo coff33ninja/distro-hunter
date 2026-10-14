@@ -9,7 +9,6 @@ from textual.widgets import Static
 
 from distro_hunter.connection_pool import AdaptiveConnectionPool, ConnectionState
 
-
 STATE_DISPLAY: dict[ConnectionState, tuple[str, str]] = {
     ConnectionState.HEALTHY: ("●", "green"),
     ConnectionState.DEGRADED: ("◐", "yellow"),

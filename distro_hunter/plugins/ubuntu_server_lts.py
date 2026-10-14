@@ -8,6 +8,8 @@ PAGE_URL = "https://ubuntu.com/download/server"
 THANK_YOU_REGEX = r"thank-you\?version=([\d.]+).*?architecture=amd64.*?lts=true"
 ISO_REGEX = r"ubuntu-([\d.]+)-live-server-amd64\.iso$"
 
+VENTOY_SUBDIR = "ubuntu"
+
 
 discover = build_ubuntu_thank_you_discover(
     page_url=PAGE_URL,

@@ -7,13 +7,12 @@ import socket
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from email.message import Message
 from pathlib import Path
-from typing import Iterable
 
-from distro_hunter.utils import ensure_directory
 from distro_hunter.url_utils import extract_links_from_html, normalize_link
-
+from distro_hunter.utils import ensure_directory
 
 RETRIABLE_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 LINK_WHITESPACE_RE = re.compile(r"\s+")
