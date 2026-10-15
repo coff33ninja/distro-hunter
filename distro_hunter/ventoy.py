@@ -106,15 +106,15 @@ def _target_for_source(
     return destination_root / relative_subdir / source.name
 
 
-def _transfer_file(source: Path, target: Path) -> None:
+def _transfer_file(source: Path, target: Path) -> bool:
     if not target.exists():
         try:
             os.replace(source, target)
-            return
+            return True
         except OSError:
             shutil.copy2(source, target)
             source.unlink()
-            return
+            return True
 
     target_stat = target.stat()
     source_stat = source.stat()
@@ -123,13 +123,14 @@ def _transfer_file(source: Path, target: Path) -> None:
         and int(target_stat.st_mtime) == int(source_stat.st_mtime)
     ):
         source.unlink()
-        return
+        return False
 
     try:
         os.replace(source, target)
     except OSError:
         shutil.copy2(source, target)
         source.unlink()
+    return True
 
 
 def sync_paths_to_ventoy(
@@ -161,8 +162,8 @@ def sync_paths_to_ventoy(
             continue
         target = _target_for_source(source, destination, settings, route_map)
         ensure_directory(target.parent)
-        _transfer_file(source, target)
-        copied.append(target)
+        if _transfer_file(source, target):
+            copied.append(target)
     return copied
 
 

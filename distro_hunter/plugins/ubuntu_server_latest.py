@@ -17,6 +17,6 @@ discover = build_ubuntu_thank_you_discover(
     iso_regex=ISO_REGEX,
     arch="amd64",
     priority=6,
-    include_lts=False,
+    include_lts=None,
     torrent_suffix=".torrent",
 )

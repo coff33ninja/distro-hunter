@@ -12,7 +12,7 @@ class StubContext:
 
 
 class UbuntuPluginTests(unittest.TestCase):
-    def test_ubuntu_server_latest_skips_lts_links(self) -> None:
+    def test_ubuntu_server_latest_includes_all_server_releases(self) -> None:
         thank_you_lts = "https://ubuntu.com/download/server/thank-you?version=24.04.4&architecture=amd64&lts=true"
         thank_you_latest = "https://ubuntu.com/download/server/thank-you?version=25.10&architecture=amd64"
         context = StubContext(
@@ -29,12 +29,9 @@ class UbuntuPluginTests(unittest.TestCase):
 
         candidates = ubuntu_server_latest.discover(context)
 
-        self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0].version, "25.10")
-        self.assertEqual(
-            candidates[0].url,
-            "https://releases.ubuntu.com/25.10/ubuntu-25.10-live-server-amd64.iso",
-        )
+        self.assertEqual(len(candidates), 2)
+        versions = {c.version for c in candidates}
+        self.assertEqual(versions, {"24.04.4", "25.10"})
 
 
 if __name__ == "__main__":
