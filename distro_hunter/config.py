@@ -216,6 +216,7 @@ class DownloadSettings:
     protect_filename_collisions: bool = True
     retention_keep_latest: int = 0
     decompress_bz2: bool = True
+    extract_7z: bool = False
     connections_per_server: int = 8
     split: int = 8
     timeout_seconds: int = 30
@@ -240,6 +241,7 @@ class VentoySettings:
     manual_subdir: str = "manual"
     manual_sources: list[ManualSourceRule] = field(default_factory=list)
     prune_removed: bool = False
+    overwrite_existing: bool = True
 
 
 @dataclass(slots=True)
@@ -433,6 +435,7 @@ def load_settings(config_path: str | Path) -> Settings:
         protect_filename_collisions=download_data.get("protect_filename_collisions", True),
         retention_keep_latest=download_data.get("retention_keep_latest", 0),
         decompress_bz2=download_data.get("decompress_bz2", True),
+        extract_7z=download_data.get("extract_7z", False),
         connections_per_server=download_data.get("connections_per_server", 8),
         split=download_data.get("split", 8),
         timeout_seconds=download_data.get("timeout_seconds", 30),
@@ -461,6 +464,7 @@ def load_settings(config_path: str | Path) -> Settings:
         manual_subdir=ventoy_data.get("manual_subdir", "manual"),
         manual_sources=manual_sources,
         prune_removed=ventoy_data.get("prune_removed", False),
+        overwrite_existing=ventoy_data.get("overwrite_existing", True),
     )
 
     generator = GeneratorSettings(

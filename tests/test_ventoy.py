@@ -1,12 +1,19 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from distro_hunter.config import DownloadSettings, GeneratorSettings, LoggingSettings, ManualSourceRule, PluginSettings, Settings, VentoySettings
 from distro_hunter.core import DistroHunter
 from distro_hunter.plugin_loader import PluginSpec
 from distro_hunter.plugin_metadata import metadata_from_fields
-from distro_hunter.ventoy import DriveInfo, infer_plugin_subdir, sync_directory_to_ventoy, sync_paths_to_ventoy
+from distro_hunter.ventoy import (
+    DriveInfo,
+    infer_plugin_subdir,
+    sync_directory_to_ventoy,
+    sync_paths_to_ventoy,
+)
 
 
 class VentoySyncTests(unittest.TestCase):
@@ -109,6 +116,39 @@ class VentoySyncTests(unittest.TestCase):
             )
             self.assertTrue((drive_path / "ISO" / "Linux" / "ubuntu" / "server" / selected.name).exists())
             self.assertFalse((drive_path / "ISO" / "Linux" / "manual" / ignored.name).exists())
+
+    def test_sync_paths_reports_locked_file_and_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as drive_root:
+            source_path = Path(source_dir)
+            drive_path = Path(drive_root)
+            locked = source_path / "locked.iso"
+            movable = source_path / "movable.iso"
+            locked.write_bytes(b"locked")
+            movable.write_bytes(b"movable")
+            drive = DriveInfo(root=drive_path, label="Ventoy", drive_type=2, score=100)
+            settings = VentoySettings(destination_subdir="ISO/Windows", copy_extensions=[".iso"])
+            errors: list[tuple[Path, OSError]] = []
+            real_replace = os.replace
+
+            def replace_with_lock(source: str | Path, target: str | Path) -> None:
+                if Path(source) == locked:
+                    raise PermissionError("file is in use")
+                real_replace(source, target)
+
+            with patch("distro_hunter.ventoy.os.replace", side_effect=replace_with_lock):
+                copied = sync_paths_to_ventoy(
+                    [locked, movable],
+                    drive,
+                    settings,
+                    on_error=lambda source, error: errors.append((source, error)),
+                )
+
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0][0], locked.resolve())
+            self.assertIsInstance(errors[0][1], PermissionError)
+            self.assertTrue(locked.exists())
+            self.assertFalse(movable.exists())
+            self.assertEqual(copied, [drive_path / "ISO/Windows/manual/movable.iso"])
 
     def test_infer_plugin_subdir_uses_family_and_type(self) -> None:
         self.assertEqual(infer_plugin_subdir("ubuntu_server_lts"), Path("ubuntu/server"))

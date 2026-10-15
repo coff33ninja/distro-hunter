@@ -48,6 +48,7 @@ class DownloadResult:
     remote: RemoteFileInfo | None = None
     checksum: ChecksumResult | None = None
     pruned_paths: list[Path] = field(default_factory=list)
+    artifact_paths: list[Path] = field(default_factory=list)
 
 
 VALID_STATUS_UP_TO_DATE = "up_to_date"

@@ -164,6 +164,40 @@ class StateStore:
             return Path(filename).name
         return None
 
+    def _sibling_download_path(self, path: Path) -> Path | None:
+        if (
+            self.download_dir is None
+            or self.download_dir.name.lower() == "downloads"
+            or path.is_absolute()
+            or path.parent != Path(".")
+        ):
+            return None
+        candidate = self.download_dir.parent / "downloads" / path.name
+        try:
+            return candidate.resolve() if candidate.is_file() else None
+        except OSError:
+            return None
+
+    def _normalize_sibling_download_path(
+        self,
+        path_text: str | None,
+        filename: str | None,
+    ) -> str | None:
+        normalized = self._normalize_download_path(path_text, filename)
+        if not normalized or self.download_dir is None:
+            return normalized
+
+        path = Path(normalized)
+        if path.is_absolute() or path.parent != Path("."):
+            return normalized
+        if (self.download_dir / path).is_file():
+            return normalized
+
+        sibling_path = self._sibling_download_path(path)
+        if sibling_path is None:
+            return normalized
+        return Path(os.path.relpath(sibling_path, self.download_dir)).as_posix()
+
     def _resolve_download_artifact_path(self, path_text: str | None, filename: str | None) -> Path | None:
         normalized = self._normalize_download_path(path_text, filename)
         if not normalized:
@@ -178,9 +212,12 @@ class StateStore:
 
         if self.download_dir is not None:
             try:
-                return (self.download_dir / path).resolve()
+                resolved = (self.download_dir / path).resolve()
             except OSError:
-                return self.download_dir / path
+                resolved = self.download_dir / path
+            if resolved.is_file():
+                return resolved
+            return self._sibling_download_path(path) or resolved
         return path
 
     def _download_artifact_exists(self, path_text: str | None, filename: str | None) -> bool:
@@ -204,7 +241,10 @@ class StateStore:
             download = record.get("download")
             if not isinstance(download, dict):
                 continue
-            normalized_path = self._normalize_download_path(download.get("path"), download.get("filename"))
+            normalized_path = self._normalize_sibling_download_path(
+                download.get("path"),
+                download.get("filename"),
+            )
             if download.get("path") != normalized_path:
                 download["path"] = normalized_path
                 changed = True
@@ -212,6 +252,20 @@ class StateStore:
                 normalized_filename = Path(normalized_path).name
                 if download.get("filename") != normalized_filename:
                     download["filename"] = normalized_filename
+                    changed = True
+            artifact_paths = download.get("artifact_paths")
+            if isinstance(artifact_paths, list):
+                normalized_artifacts = [
+                    self._normalize_sibling_download_path(
+                        artifact,
+                        Path(artifact).name if isinstance(artifact, str) else None,
+                    )
+                    if isinstance(artifact, str)
+                    else artifact
+                    for artifact in artifact_paths
+                ]
+                if normalized_artifacts != artifact_paths:
+                    download["artifact_paths"] = normalized_artifacts
                     changed = True
             artifact_exists = self._download_artifact_exists(normalized_path, download.get("filename"))
             if download.get("downloaded") != artifact_exists:
@@ -336,6 +390,104 @@ class StateStore:
             paths.append(path_text)
         return paths
 
+    def relocate_download_artifacts(self, moved_paths: dict[Path, Path]) -> bool:
+        resolved_paths = {
+            source.resolve(): target.resolve()
+            for source, target in moved_paths.items()
+        }
+        changed = False
+
+        def relocated_path(path_text: str | None, filename: str | None) -> str | None:
+            source = self._resolve_download_artifact_path(path_text, filename)
+            if source is None:
+                return path_text
+            target = resolved_paths.get(source.resolve())
+            if target is None:
+                return path_text
+            if self.download_dir is not None:
+                try:
+                    relative = Path(os.path.relpath(target, self.download_dir))
+                    return relative.as_posix()
+                except ValueError:
+                    pass
+            return str(target)
+
+        for record in self.data.setdefault("plugins", {}).values():
+            download = record.get("download")
+            if not isinstance(download, dict):
+                continue
+
+            path = relocated_path(download.get("path"), download.get("filename"))
+            if path != download.get("path"):
+                download["path"] = path
+                changed = True
+
+            artifact_paths = download.get("artifact_paths")
+            if isinstance(artifact_paths, list):
+                updated_paths = [
+                    relocated_path(artifact, Path(artifact).name if isinstance(artifact, str) else None)
+                    for artifact in artifact_paths
+                ]
+                if updated_paths != artifact_paths:
+                    download["artifact_paths"] = updated_paths
+                    changed = True
+
+        if changed:
+            self.save()
+        return changed
+
+    def record_extracted_artifacts(
+        self,
+        archive_path: Path,
+        artifact_paths: list[Path],
+    ) -> bool:
+        archive = archive_path.resolve()
+        for record in self.data.setdefault("plugins", {}).values():
+            download = record.get("download")
+            if not isinstance(download, dict):
+                continue
+            source = self._resolve_download_artifact_path(
+                download.get("path"),
+                download.get("filename"),
+            )
+            if source is None or source.resolve() != archive:
+                continue
+
+            download["artifact_paths"] = [
+                path
+                for path in (
+                    self._normalize_download_path(str(artifact), artifact.name)
+                    for artifact in artifact_paths
+                )
+                if path
+            ]
+            download["downloaded"] = self._download_artifact_exists(
+                download.get("path"),
+                download.get("filename"),
+            )
+            self.save()
+            return True
+        return False
+
+    def mark_download_consumed(self, archive_path: Path) -> bool:
+        archive = archive_path.resolve()
+        for record in self.data.setdefault("plugins", {}).values():
+            download = record.get("download")
+            if not isinstance(download, dict):
+                continue
+            source = self._resolve_download_artifact_path(
+                download.get("path"),
+                download.get("filename"),
+            )
+            if source is None or source.resolve() != archive:
+                continue
+
+            if download.get("downloaded") is not False:
+                download["downloaded"] = False
+                self.save()
+            return True
+        return False
+
     def remember_download(self, result: DownloadResult) -> None:
         record = self.get_plugin_record(result.plugin_slug)
         filename = result.path.name if result.path else result.candidate.filename
@@ -348,9 +500,18 @@ class StateStore:
             checksum_stat = checksum_file_path.stat()
             checksum_file_size = checksum_stat.st_size
             checksum_file_mtime_ns = checksum_stat.st_mtime_ns
+        artifact_paths = [
+            path
+            for path in (
+                self._normalize_download_path(str(artifact), artifact.name)
+                for artifact in result.artifact_paths
+            )
+            if path
+        ]
         record["download"] = {
             "path": normalized_path,
             "filename": filename,
+            "artifact_paths": artifact_paths,
             "downloaded": local_available,
             "skipped_reason": result.skipped_reason,
             "updated_at": datetime.now(UTC).isoformat(),
@@ -378,6 +539,7 @@ class StateStore:
             payload={
                 "path": record["download"]["path"],
                 "filename": filename,
+                "artifact_paths": artifact_paths,
                 "downloaded": local_available,
                 "skipped_reason": result.skipped_reason,
                 "checksum_status": result.checksum.status if result.checksum else None,

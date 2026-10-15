@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 from zipfile import ZipFile
 
+import py7zr
+
 from distro_hunter.checksums import ExpectedChecksum
 from distro_hunter.config import DownloadSettings, GeneratorSettings, LoggingSettings, PluginSettings, Settings, VentoySettings
 from distro_hunter.exceptions import DownloadAttemptError
@@ -60,6 +62,7 @@ class DownloadManagerTests(unittest.TestCase):
                 aria2_path=None,
                 prefer_aria2=False,
                 decompress_bz2=True,
+                extract_7z=True,
             ),
             ventoy=VentoySettings(enabled=False),
             generator=GeneratorSettings(output_dir=download_dir),
@@ -270,3 +273,105 @@ class DownloadManagerTests(unittest.TestCase):
             self.assertEqual(fake_web.download_calls, 0)
             self.assertTrue(output_path.exists())
             self.assertEqual(output_path.read_bytes(), b"fydeos-image")
+
+    def test_process_extracts_all_disk_images_from_7z_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            download_dir = root / "downloads"
+            download_dir.mkdir()
+            source_dir = root / "source"
+            source_dir.mkdir()
+            members = {
+                "Disk1.img": source_dir / "Disk1.img",
+                "setup.iso": source_dir / "setup.iso",
+                "readme.txt": source_dir / "readme.txt",
+            }
+            for name, path in members.items():
+                path.write_bytes(name.encode())
+            archive_path = source_dir / "windows-floppies.7z"
+            with py7zr.SevenZipFile(archive_path, "w") as archive:
+                archive.write(members["Disk1.img"], "Windows 1.0/Disk1.img")
+                archive.write(members["setup.iso"], "Windows 1.0/setup.iso")
+                archive.write(members["readme.txt"], "Windows 1.0/readme.txt")
+
+            manager = DownloadManager(self._settings(download_dir), FakeState())
+            manager.web = FakeWeb(
+                archive_path.read_bytes(),
+                "https://archive.org/download/vintage/windows-floppies.7z",
+            )
+
+            result = manager.process(
+                "windows_1_04_x86",
+                Candidate(
+                    url="https://archive.org/download/vintage/windows-floppies.7z",
+                    filename="windows-floppies.7z",
+                    metadata={"preserve_related_artifacts": True},
+                ),
+            )
+
+            self.assertEqual(result.path, download_dir / "windows-floppies.7z")
+            self.assertEqual(len(result.artifact_paths), 2)
+            self.assertEqual(
+                {path.suffix.lower() for path in result.artifact_paths},
+                {".img", ".iso"},
+            )
+            self.assertTrue(all(path.is_file() for path in result.artifact_paths))
+            self.assertFalse(
+                any(path.name.endswith(".txt") for path in result.artifact_paths)
+            )
+
+    def test_process_rejects_unsafe_image_paths_in_7z_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            download_dir = root / "downloads"
+            download_dir.mkdir()
+            source_dir = root / "source"
+            source_dir.mkdir()
+            source = source_dir / "escape.img"
+            source.write_bytes(b"unsafe")
+            archive_path = root / "unsafe.7z"
+            with py7zr.SevenZipFile(archive_path, "w") as archive:
+                archive.write(source, "../escape.img")
+
+            manager = DownloadManager(self._settings(download_dir), FakeState())
+            manager.web = FakeWeb(
+                archive_path.read_bytes(),
+                "https://archive.org/download/vintage/unsafe.7z",
+            )
+
+            with self.assertRaises(DownloadAttemptError):
+                manager.process(
+                    "windows_1_04_x86",
+                    Candidate(
+                        url="https://archive.org/download/vintage/unsafe.7z",
+                        filename="unsafe.7z",
+                    ),
+                )
+
+            self.assertFalse((root / "escape.img").exists())
+
+    def test_related_media_set_does_not_prune_earlier_member(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            download_dir = Path(temp_dir)
+            state = StateStore(download_dir / "state.json", download_dir=download_dir)
+            old_path = download_dir / "disk1.img"
+            old_path.write_bytes(b"disk one")
+            state.data["plugins"]["windows_dos_6_0_x86"] = {
+                "download": {"path": "disk1.img", "filename": "disk1.img"},
+                "history": [],
+            }
+            settings = self._settings(download_dir)
+            settings.download.retention_keep_latest = 1
+            manager = DownloadManager(settings, state)
+            manager.web = FakeWeb(b"disk two", "https://example.org/disk2.img")
+
+            manager.process(
+                "windows_dos_6_0_x86",
+                Candidate(
+                    url="https://example.org/disk2.img",
+                    filename="disk2.img",
+                    metadata={"preserve_related_artifacts": True},
+                ),
+            )
+
+            self.assertTrue(old_path.exists())

@@ -398,8 +398,8 @@ class DistroHunterApp(App[None]):
         self._set_status(f"Discovering {len(selected)} plugin(s)...")
 
         def callback(discovery: DiscoverySelection, completed: int, total: int) -> None:
-            row = discovery_rows([discovery])[0]
-            self.call_from_thread(self._log, row)
+            for row in discovery_rows([discovery]):
+                self.call_from_thread(self._log, row)
             self.call_from_thread(
                 self._set_status,
                 f"Discovered {discovery.plugin.slug} ({completed}/{total})",

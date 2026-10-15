@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
+from filecmp import cmp as files_match
 from fnmatch import fnmatch
 from pathlib import Path
 from time import perf_counter
 from urllib.parse import urlparse
+
+from py7zr.exceptions import ArchiveError, PasswordRequired
+from requests.exceptions import RequestException
 
 from distro_hunter.config import PluginOverrideSettings, Settings
 from distro_hunter.downloads import DownloadAttemptError, DownloadManager
@@ -36,6 +40,7 @@ from distro_hunter.ventoy import (
     infer_plugin_subdir,
     sync_directory_to_ventoy,
     sync_paths_to_ventoy,
+    ventoy_target_path,
 )
 
 DOCTOR_OK = "ok"
@@ -153,9 +158,10 @@ class DistroHunter:
         try:
             candidates = self._apply_plugin_overrides(plugin_spec.slug, plugin_spec.discover(context))
             ranked = rank_candidates(candidates)
-            selected = choose_best(candidates)
+            downloadable = [candidate for candidate in candidates if _candidate_is_downloadable(candidate)]
+            selected = choose_best(downloadable)
             return DiscoverySelection(plugin=plugin_spec, ranked=ranked, selected=selected)
-        except (OSError, TypeError, ValueError) as exc:
+        except (OSError, RequestException, TypeError, ValueError) as exc:
             return DiscoverySelection(
                 plugin=plugin_spec,
                 ranked=[],
@@ -210,7 +216,17 @@ class DistroHunter:
         dry_run: bool = False,
         progress_callback=None,
     ) -> DownloadResult:
-        if discovery.selected is None:
+        downloadable = [
+            candidate
+            for candidate in discovery.ranked
+            if _candidate_is_downloadable(candidate)
+        ]
+        selected = discovery.selected
+        if selected is not None and not _candidate_is_downloadable(selected):
+            selected = choose_best(downloadable)
+        if selected is None and downloadable:
+            selected = choose_best(downloadable)
+        if selected is None:
             result = DownloadResult(
                 plugin_slug=discovery.plugin.slug,
                 candidate=Candidate(url="", filename=None),
@@ -225,12 +241,74 @@ class DistroHunter:
         tried_urls: set[str] = set()
         last_error: str | None = None
         result: DownloadResult | None = None
-        ordered_candidates = self.state.prioritize_mirror_candidates(discovery.ranked or [discovery.selected])
-        preferred_due_to_backoff = (
-            discovery.selected is not None
-            and ordered_candidates
-            and ordered_candidates[0].url != discovery.selected.url
+        ordered_candidates = self.state.prioritize_mirror_candidates(
+            downloadable or [selected]
         )
+        preferred_due_to_backoff = (
+            ordered_candidates and ordered_candidates[0].url != selected.url
+        )
+
+        if discovery.plugin.batch_download:
+            batch_results: list[DownloadResult] = []
+            batch_errors: list[str] = []
+            for candidate in downloadable:
+                try:
+                    batch_result = self.downloads.process(
+                        discovery.plugin.slug,
+                        candidate,
+                        dry_run=dry_run,
+                        progress_callback=progress_callback,
+                    )
+                    batch_results.append(batch_result)
+                    self.state.remember_mirror_success(
+                        batch_result.remote.final_url
+                        if batch_result.remote
+                        else candidate.url
+                    )
+                except (OSError, TypeError, ValueError, DownloadAttemptError) as exc:
+                    error = f"{candidate.filename or candidate.url}: {exc}"
+                    batch_errors.append(error)
+                    self.journal.mirror_failure(
+                        discovery.plugin.slug,
+                        candidate.url,
+                        str(exc),
+                    )
+
+            artifacts = list(
+                dict.fromkeys(
+                    artifact
+                    for batch_result in batch_results
+                    for artifact in (
+                        batch_result.artifact_paths
+                        or ([batch_result.path] if batch_result.path else [])
+                    )
+                )
+            )
+            first_result = batch_results[0] if batch_results else None
+            result = DownloadResult(
+                plugin_slug=discovery.plugin.slug,
+                candidate=selected,
+                path=first_result.path if first_result else None,
+                downloaded=any(item.downloaded for item in batch_results),
+                skipped_reason=(
+                    "; ".join(batch_errors) if batch_errors else
+                    ("all media set downloads failed" if not batch_results else None)
+                ),
+                remote=first_result.remote if first_result else None,
+                checksum=first_result.checksum if first_result else None,
+                pruned_paths=[
+                    path for item in batch_results for path in item.pruned_paths
+                ],
+                artifact_paths=artifacts,
+            )
+            if batch_errors:
+                self.journal.error(
+                    f"{discovery.plugin.slug}: incomplete media set: "
+                    + "; ".join(batch_errors)
+                )
+            self.state.remember_download(result)
+            self.state.save()
+            return result
 
         for candidate in ordered_candidates:
             if candidate.url in tried_urls:
@@ -244,7 +322,7 @@ class DistroHunter:
                     progress_callback=progress_callback,
                 )
                 self.state.remember_mirror_success(result.remote.final_url if result.remote else candidate.url)
-                if candidate.url != discovery.selected.url:
+                if candidate.url != selected.url:
                     if preferred_due_to_backoff and candidate.url == ordered_candidates[0].url:
                         self.journal.info(
                             f"{discovery.plugin.slug}: preferred remembered healthy mirror {candidate.url}"
@@ -270,7 +348,7 @@ class DistroHunter:
         if result is None:
             result = DownloadResult(
                 plugin_slug=discovery.plugin.slug,
-                candidate=discovery.selected,
+                candidate=selected,
                 path=None,
                 downloaded=False,
                 skipped_reason=last_error or "all download candidates failed",
@@ -347,7 +425,13 @@ class DistroHunter:
         plugin_spec = self.get_plugin(plugin)
         started = perf_counter()
         try:
-            ranked = rank_candidates(self._apply_plugin_overrides(plugin_spec.slug, plugin_spec.discover(self.context)))
+            candidates = self._apply_plugin_overrides(
+                plugin_spec.slug,
+                plugin_spec.discover(self.context),
+            )
+            ranked = rank_candidates(
+                [candidate for candidate in candidates if _candidate_is_downloadable(candidate)]
+            )
         except Exception as exc:  # noqa: BLE001 - doctor must catch any failure
             return DoctorResult(
                 plugin=plugin_spec,
@@ -516,13 +600,34 @@ class DistroHunter:
             path_text = download.get("path")
             if not path_text:
                 continue
-            source_path = Path(path_text)
-            if not source_path.is_absolute():
-                source_path = (self.settings.download.download_dir / source_path).resolve()
             plugin = self.plugin_map.get(plugin_slug)
             metadata = plugin.resolved_metadata() if plugin else infer_plugin_metadata(plugin_slug)
             subdir = Path(plugin.ventoy_subdir) if plugin and plugin.ventoy_subdir else infer_plugin_subdir(plugin_slug, metadata)
-            routes[source_path.resolve()] = subdir
+            filename = download.get("filename")
+            path_texts = [
+                path_text,
+                *download.get("artifact_paths", []),
+                *([filename] if isinstance(filename, str) else []),
+            ]
+            for artifact_path_text in path_texts:
+                source_path = Path(artifact_path_text)
+                if not source_path.is_absolute():
+                    source_path = (
+                        self.settings.download.download_dir / source_path
+                    ).resolve()
+                if (
+                    not source_path.is_file()
+                    and Path(artifact_path_text).parent == Path(".")
+                    and self.settings.download.download_dir.name != "downloads"
+                ):
+                    legacy_source = (
+                        self.settings.download.download_dir.parent
+                        / "downloads"
+                        / Path(artifact_path_text).name
+                    )
+                    if legacy_source.is_file():
+                        source_path = legacy_source.resolve()
+                routes[source_path.resolve()] = subdir
 
         if self.settings.download.download_dir.exists():
             for source_path in sorted(self.settings.download.download_dir.iterdir()):
@@ -536,18 +641,167 @@ class DistroHunter:
                     routes[resolved] = manual_subdir
         return routes
 
+    def _extract_sync_archives(
+        self,
+        source_dir: Path,
+        route_map: dict[Path, Path],
+    ) -> dict[Path, list[Path]]:
+        extracted_archives: dict[Path, list[Path]] = {}
+        if not self.settings.download.extract_7z:
+            return extracted_archives
+
+        for archive_path in sorted(source_dir.glob("*.7z")):
+            try:
+                artifact_paths = self.downloads.extract_local_7z_images(archive_path)
+                archive_route = route_map.get(archive_path.resolve())
+                if archive_route is None:
+                    archive_route = self._manual_source_subdir(archive_path) or Path(
+                        self.settings.ventoy.manual_subdir
+                    )
+                for artifact_path in artifact_paths:
+                    route_map[artifact_path.resolve()] = archive_route
+                self.state.record_extracted_artifacts(archive_path, artifact_paths)
+                extracted_archives[archive_path.resolve()] = artifact_paths
+            except (ArchiveError, OSError, PasswordRequired, ValueError) as error:
+                self.journal.error(f"7z extraction failed for {archive_path}: {error}")
+        return extracted_archives
+
     def sync_ventoy(self) -> tuple[Path | None, list[Path]]:
         if not self.settings.ventoy.enabled:
             return None, []
         drive = detect_ventoy_drive(self.settings.ventoy)
         if drive is None:
             return None, []
+        route_map = self._build_ventoy_route_map()
+        source_dir = self.settings.download.download_dir
+        extracted_archives = self._extract_sync_archives(source_dir, route_map)
+        destination = drive.root / self.settings.ventoy.destination_subdir
+        allowed_extensions = tuple(entry.lower() for entry in self.settings.ventoy.copy_extensions)
+        legacy_download_dir = (source_dir.parent / "downloads").resolve()
+        external_sources = {
+            source
+            for source in route_map
+            if source.parent == legacy_download_dir
+            and source_dir.resolve() != legacy_download_dir
+            and source.is_file()
+        }
+        tracked_targets = {
+            source.resolve(): ventoy_target_path(
+                source,
+                destination,
+                self.settings.ventoy,
+                route_map,
+            )
+            for source in route_map
+        }
+        recovered_paths = {
+            source: target
+            for source, target in tracked_targets.items()
+            if not source.exists() and target.is_file()
+        }
+        if recovered_paths:
+            self.state.relocate_download_artifacts(recovered_paths)
+
+        planned_sources = {
+            source.resolve()
+            for source in source_dir.iterdir()
+            if source.is_file() and source.name.lower().endswith(allowed_extensions)
+        }
+        planned_sources.update(
+            source
+            for source in external_sources
+            if source.name.lower().endswith(allowed_extensions)
+        )
+        planned_paths = {
+            source: ventoy_target_path(source, destination, self.settings.ventoy, route_map)
+            for source in sorted(planned_sources)
+        }
+
+        def report_sync_error(source: Path, error: OSError) -> None:
+            self.journal.error(f"Ventoy sync failed for {source}: {error}")
+
         copied = sync_directory_to_ventoy(
-            self.settings.download.download_dir,
+            source_dir,
             drive,
             self.settings.ventoy,
-            route_map=self._build_ventoy_route_map(),
+            route_map=route_map,
+            on_error=report_sync_error,
         )
+        moved_paths: dict[Path, Path] = {}
+        for source, target in planned_paths.items():
+            if not target.is_file():
+                continue
+            if not source.exists():
+                moved_paths[source] = target
+                continue
+            if self.settings.ventoy.overwrite_existing:
+                continue
+            try:
+                matches = files_match(source, target, shallow=False)
+            except OSError as error:
+                report_sync_error(source, error)
+                continue
+            if not matches:
+                self.journal.warning(
+                    f"Retaining {source}; existing Ventoy file differs at {target}"
+                )
+                continue
+            try:
+                source.unlink()
+            except OSError as error:
+                report_sync_error(source, error)
+                continue
+            moved_paths[source] = target
+        if moved_paths:
+            self.state.relocate_download_artifacts(moved_paths)
+
+        for archive_path, artifact_paths in extracted_archives.items():
+            artifact_targets = {
+                artifact_path: ventoy_target_path(
+                    artifact_path,
+                    destination,
+                    self.settings.ventoy,
+                    route_map,
+                )
+                for artifact_path in artifact_paths
+            }
+            try:
+                all_synced = all(
+                    target.is_file()
+                    and (
+                        not artifact_path.is_file()
+                        or files_match(artifact_path, target, shallow=False)
+                    )
+                    for artifact_path, target in artifact_targets.items()
+                )
+            except OSError as error:
+                self.journal.error(
+                    f"Could not verify extracted images for {archive_path}: {error}"
+                )
+                continue
+
+            if not all_synced:
+                self.journal.warning(
+                    f"Retaining {archive_path}; one or more extracted images are not synced"
+                )
+                continue
+
+            self.state.relocate_download_artifacts(artifact_targets)
+            try:
+                archive_path.unlink()
+            except OSError as error:
+                self.journal.error(f"Could not remove consumed archive {archive_path}: {error}")
+                continue
+            self.state.mark_download_consumed(archive_path)
+            for artifact_path in artifact_paths:
+                if not artifact_path.exists():
+                    continue
+                try:
+                    artifact_path.unlink()
+                except OSError as error:
+                    self.journal.error(
+                        f"Could not remove duplicate extracted image {artifact_path}: {error}"
+                    )
         return drive.root, copied
 
     def validate(
@@ -697,18 +951,23 @@ class DistroHunter:
     def sync_download_result(self, result: DownloadResult) -> tuple[Path | None, list[Path]]:
         if not self.settings.ventoy.enabled or result.path is None:
             return None, []
-        try:
-            artifact_path = result.path.resolve()
-        except OSError:
-            artifact_path = result.path
-        if not artifact_path.exists() or not artifact_path.is_file():
+        paths = result.artifact_paths or [result.path]
+        artifacts: list[Path] = []
+        for path in paths:
+            try:
+                artifact_path = path.resolve()
+            except OSError:
+                artifact_path = path
+            if artifact_path.exists() and artifact_path.is_file():
+                artifacts.append(artifact_path)
+        if not artifacts:
             return None, []
 
         drive = detect_ventoy_drive(self.settings.ventoy)
         if drive is None:
             return None, []
         copied = sync_paths_to_ventoy(
-            [artifact_path],
+            artifacts,
             drive,
             self.settings.ventoy,
             route_map=self._build_ventoy_route_map(),
@@ -760,15 +1019,35 @@ def discovery_rows(discoveries: list[DiscoverySelection]) -> list[str]:
         if discovery.error:
             rows.append(f"{discovery.plugin.slug}: error: {discovery.error}")
             continue
-        if discovery.selected is None:
+        candidates = discovery.ranked or ([discovery.selected] if discovery.selected is not None else [])
+        if not candidates:
             rows.append(f"{discovery.plugin.slug}: no candidates found")
             continue
-        selected = discovery.selected
-        rows.append(
-            f"{discovery.plugin.slug}: {selected.filename or selected.url} "
-            f"(score={score_candidate(selected)}, version={selected.version or 'n/a'})"
-        )
+        plugin_metadata = discovery.plugin.resolved_metadata()
+        display_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate is discovery.selected or candidate.metadata.get("downloadable") is False
+        ]
+        for candidate in display_candidates:
+            source = candidate.metadata.get("source_kind") or plugin_metadata.source_kind or "unknown"
+            edition = candidate.metadata.get("edition_type") or plugin_metadata.edition_type or "n/a"
+            architecture = candidate.arch or plugin_metadata.architecture or "n/a"
+            kind = (
+                "link-only"
+                if candidate.metadata.get("downloadable") is False
+                else f"score={score_candidate(candidate)}"
+            )
+            rows.append(
+                f"{discovery.plugin.slug}: {candidate.filename or candidate.url} "
+                f"(source={source}, edition={edition}, arch={architecture}, "
+                f"version={candidate.version or 'n/a'}, {kind}, url={candidate.url})"
+            )
     return rows
+
+
+def _candidate_is_downloadable(candidate: Candidate) -> bool:
+    return candidate.metadata.get("downloadable") is not False
 
 
 def doctor_rows(results: list[DoctorResult]) -> list[str]:

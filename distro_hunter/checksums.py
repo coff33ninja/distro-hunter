@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 ALGORITHM_LENGTHS = {
     "sha512": 128,
+    "sha1": 40,
     "sha256": 64,
 }
 SIGNATURE_SUFFIXES = (".asc", ".sig", ".gpg")

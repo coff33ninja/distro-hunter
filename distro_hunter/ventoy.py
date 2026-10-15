@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,7 +87,7 @@ def infer_plugin_subdir(plugin_slug: str, metadata: PluginMetadata | None = None
     return metadata_subdir(metadata or infer_plugin_metadata(plugin_slug))
 
 
-def _target_for_source(
+def ventoy_target_path(
     source: Path,
     destination_root: Path,
     settings: VentoySettings,
@@ -111,7 +112,9 @@ def _transfer_file(source: Path, target: Path) -> bool:
         try:
             os.replace(source, target)
             return True
-        except OSError:
+        except OSError as error:
+            if error.errno != errno.EXDEV:
+                raise
             shutil.copy2(source, target)
             source.unlink()
             return True
@@ -127,7 +130,9 @@ def _transfer_file(source: Path, target: Path) -> bool:
 
     try:
         os.replace(source, target)
-    except OSError:
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
         shutil.copy2(source, target)
         source.unlink()
     return True
@@ -139,6 +144,7 @@ def sync_paths_to_ventoy(
     settings: VentoySettings,
     *,
     route_map: dict[Path, Path] | None = None,
+    on_error: Callable[[Path, OSError], None] | None = None,
 ) -> list[Path]:
     copied: list[Path] = []
     destination = drive.root / settings.destination_subdir if settings.destination_subdir else drive.root
@@ -160,11 +166,49 @@ def sync_paths_to_ventoy(
     for source in sorted(ordered_sources):
         if not source.is_file() or not source.name.lower().endswith(allowed_extensions):
             continue
-        target = _target_for_source(source, destination, settings, route_map)
+        target = ventoy_target_path(source, destination, settings, route_map)
+        if target.exists() and not settings.overwrite_existing:
+            continue
         ensure_directory(target.parent)
-        if _transfer_file(source, target):
-            copied.append(target)
+        try:
+            if _transfer_file(source, target):
+                copied.append(target)
+        except OSError as error:
+            if on_error is None:
+                raise
+            on_error(source, error)
     return copied
+
+
+def _directory_sync_plan(
+    source_dir: Path,
+    destination: Path,
+    settings: VentoySettings,
+    route_map: dict[Path, Path] | None,
+) -> tuple[list[Path], set[Path], tuple[str, ...]]:
+    wanted_files: set[Path] = set()
+    allowed_extensions = tuple(entry.lower() for entry in settings.copy_extensions)
+    sources: list[Path] = []
+    source_root = source_dir.resolve()
+    sibling_download_dir = (source_root.parent / "downloads").resolve()
+    candidates = sorted(source_dir.iterdir())
+    if route_map and source_root != sibling_download_dir:
+        candidates.extend(
+            sorted(source for source in route_map if source.parent == sibling_download_dir)
+        )
+
+    seen_sources: set[Path] = set()
+    for source in candidates:
+        if not source.is_file() or not source.name.lower().endswith(allowed_extensions):
+            continue
+        resolved = source.resolve()
+        if resolved in seen_sources:
+            continue
+        seen_sources.add(resolved)
+        sources.append(resolved)
+        target = ventoy_target_path(resolved, destination, settings, route_map)
+        wanted_files.add(target)
+    return sources, wanted_files, allowed_extensions
 
 
 def sync_directory_to_ventoy(
@@ -173,20 +217,24 @@ def sync_directory_to_ventoy(
     settings: VentoySettings,
     *,
     route_map: dict[Path, Path] | None = None,
+    on_error: Callable[[Path, OSError], None] | None = None,
 ) -> list[Path]:
     destination = drive.root / settings.destination_subdir if settings.destination_subdir else drive.root
     ensure_directory(destination)
 
-    wanted_files: set[Path] = set()
-    allowed_extensions = tuple(entry.lower() for entry in settings.copy_extensions)
-    sources: list[Path] = []
-    for source in sorted(source_dir.iterdir()):
-        if not source.is_file() or not source.name.lower().endswith(allowed_extensions):
-            continue
-        sources.append(source)
-        target = _target_for_source(source, destination, settings, route_map)
-        wanted_files.add(target)
-    copied = sync_paths_to_ventoy(sources, drive, settings, route_map=route_map)
+    sources, wanted_files, allowed_extensions = _directory_sync_plan(
+        source_dir,
+        destination,
+        settings,
+        route_map,
+    )
+    copied = sync_paths_to_ventoy(
+        sources,
+        drive,
+        settings,
+        route_map=route_map,
+        on_error=on_error,
+    )
 
     if settings.prune_removed:
         for existing in destination.rglob("*"):

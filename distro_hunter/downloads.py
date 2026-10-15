@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import bz2
+import shutil
 import subprocess
+import tempfile
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from zipfile import ZipFile
+
+import py7zr
 
 from distro_hunter.checksums import (
     ExpectedChecksum,
@@ -364,6 +368,99 @@ class DownloadManager:
             return self._extract_zip_disk_image(local_path, progress_callback=progress_callback)
         return local_path
 
+    def _extract_7z_images(self, archive_path: Path, progress_callback=None) -> list[Path]:
+        with py7zr.SevenZipFile(archive_path, mode="r") as archive:
+            image_members: list[tuple[str, PurePosixPath]] = []
+            for member in archive.getnames():
+                normalized = member.replace("\\", "/")
+                posix_path = PurePosixPath(normalized)
+                windows_path = PureWindowsPath(member)
+                if posix_path.suffix.lower() not in {".iso", ".img"}:
+                    continue
+                if (
+                    posix_path.is_absolute()
+                    or windows_path.is_absolute()
+                    or windows_path.drive
+                    or ".." in posix_path.parts
+                    or ".." in windows_path.parts
+                ):
+                    raise ValueError(f"Unsafe image path in 7z archive: {member}")
+                image_members.append((member, posix_path))
+
+            if not image_members:
+                raise ValueError("7z archive contains no .iso or .img files")
+
+            extracted_paths: list[Path] = []
+            with tempfile.TemporaryDirectory(
+                prefix=".extract-",
+                dir=archive_path.parent,
+            ) as temporary_directory:
+                extraction_root = Path(temporary_directory).resolve()
+                archive.extract(
+                    path=temporary_directory,
+                    targets=[member for member, _path in image_members],
+                )
+                for member, relative_path in image_members:
+                    source_path = extraction_root.joinpath(*relative_path.parts)
+                    resolved_source = source_path.resolve()
+                    try:
+                        resolved_source.relative_to(extraction_root)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Extracted image escaped its temporary directory: {member}"
+                        ) from exc
+                    if not resolved_source.is_file() or resolved_source.is_symlink():
+                        raise ValueError(f"Archive image is not a regular file: {member}")
+
+                    member_name = "__".join(relative_path.parts)
+                    output_path = archive_path.parent / (
+                        f"{archive_path.stem}--{member_name}"
+                    )
+                    temporary_output = output_path.with_name(
+                        f"{output_path.name}.part"
+                    )
+                    try:
+                        shutil.copyfile(resolved_source, temporary_output)
+                        temporary_output.replace(output_path)
+                    finally:
+                        if temporary_output.exists():
+                            temporary_output.unlink()
+                    extracted_paths.append(output_path)
+                    if progress_callback:
+                        progress_callback(
+                            len(extracted_paths),
+                            len(image_members),
+                            output_path.name,
+                        )
+            return extracted_paths
+
+    def extract_local_7z_images(self, archive_path: Path) -> list[Path]:
+        if not self.settings.download.extract_7z:
+            return []
+        if archive_path.suffix.lower() != ".7z" or not archive_path.is_file():
+            raise ValueError(f"Not a local 7z archive: {archive_path}")
+        return self._extract_7z_images(archive_path)
+
+    def _finalize_local_artifacts(
+        self,
+        local_path: Path,
+        progress_callback=None,
+    ) -> tuple[Path, list[Path]]:
+        if (
+            self.settings.download.extract_7z
+            and local_path.name.lower().endswith(".7z")
+            and local_path.exists()
+        ):
+            return local_path, self._extract_7z_images(
+                local_path,
+                progress_callback=progress_callback,
+            )
+        final_path = self._finalize_local_artifact(
+            local_path,
+            progress_callback=progress_callback,
+        )
+        return final_path, [final_path]
+
     def process(self, plugin_slug: str, candidate: Candidate, *, dry_run: bool = False, progress_callback=None) -> DownloadResult:
         remote = self._remote_info(candidate)
         filename = remote.filename or candidate.filename or f"{plugin_slug}.iso"
@@ -373,8 +470,16 @@ class DownloadManager:
         should_download, skipped_reason, checksum_result = self._should_download(plugin_slug, local_path, remote, expected_checksum)
         selected = replace(candidate, filename=local_path.name)
         if not should_download:
-            final_path = self._finalize_local_artifact(local_path, progress_callback=progress_callback)
-            pruned_paths = self._apply_retention(plugin_slug, final_path) if final_path.exists() else []
+            final_path, artifact_paths = self._finalize_local_artifacts(
+                local_path,
+                progress_callback=progress_callback,
+            )
+            preserve_related = bool(candidate.metadata.get("preserve_related_artifacts"))
+            pruned_paths = (
+                self._apply_retention(plugin_slug, final_path)
+                if final_path.exists() and not preserve_related
+                else []
+            )
             if progress_callback and final_path == local_path:
                 progress_callback(1, 1, final_path.name)
             return DownloadResult(
@@ -386,6 +491,7 @@ class DownloadManager:
                 remote=remote,
                 checksum=checksum_result,
                 pruned_paths=pruned_paths,
+                artifact_paths=artifact_paths,
             )
 
         if dry_run:
@@ -422,13 +528,21 @@ class DownloadManager:
 
             staging_path.replace(local_path)
             checksum_result = self._verify_local_artifact(local_path, expected_checksum)
-            final_path = self._finalize_local_artifact(local_path, progress_callback=progress_callback)
+            final_path, artifact_paths = self._finalize_local_artifacts(
+                local_path,
+                progress_callback=progress_callback,
+            )
         except Exception as exc:
             if staging_path.exists():
                 staging_path.unlink()
             raise DownloadAttemptError(str(exc), candidate=selected, remote=remote) from exc
 
-        pruned_paths = self._apply_retention(plugin_slug, final_path) if final_path.exists() else []
+        preserve_related = bool(candidate.metadata.get("preserve_related_artifacts"))
+        pruned_paths = (
+            self._apply_retention(plugin_slug, final_path)
+            if final_path.exists() and not preserve_related
+            else []
+        )
         return DownloadResult(
             plugin_slug=plugin_slug,
             candidate=selected,
@@ -437,4 +551,5 @@ class DownloadManager:
             remote=remote,
             checksum=checksum_result,
             pruned_paths=pruned_paths,
+            artifact_paths=artifact_paths,
         )

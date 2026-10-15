@@ -72,6 +72,20 @@ Distro Hunter is a Windows-friendly Python tool that automates the discovery, do
    - Create a task that runs: `powershell.exe -ExecutionPolicy Bypass -File ".\Update-Ventoy.ps1"`
    - Configure triggers: daily, weekly, on workstation unlock, or at logon
 
+## Windows Installer Catalog
+
+The Windows profile uses the same discovery interface with a separate catalog and state:
+
+```powershell
+.\.venv\Scripts\python.exe -m distro_hunter --config config.windows.json list-plugins
+.\.venv\Scripts\python.exe -m distro_hunter --config config.windows.json discover
+.\.venv\Scripts\python.exe -m distro_hunter --config config.windows.json tui
+```
+
+Archive.org results include direct ISO links, while UUP Dump results link to the matching build page. UUP Dump requires choosing a language and edition and assembling the ISO on its site; these links are informational and are never treated as downloadable files by Distro Hunter. Archive.org is a third-party archive, so verify an image against a trusted checksum before using it.
+
+The Windows catalog includes archived Windows releases, Windows 11 26H2 x64/ARM64 entries, and rolling UUP Dump discovery for current and future Windows 11 builds. The rolling entries are build-page links rather than ISO downloads. Legacy batch media (including DOS floppy disks and multi-disc NT/Server releases) is downloaded together; `.7z` archives are selectively extracted to image files, and the Windows profile can sync `.iso` and `.img` files to Ventoy. During sync, a local `.7z` archive is deleted only after all extracted images are verified at their Ventoy destinations; failures or conflicts retain it for retry. Keep the Windows run plugin-filtered because legacy collections and full ISO sets can be very large.
+
 ## ⚙️ Configuration
 
 Distro Hunter uses a JSON configuration file (default: `config.example.json`). Key sections:

@@ -53,6 +53,36 @@ class StateStoreTests(unittest.TestCase):
             self.assertEqual(download_record["filename"], "ubuntu.iso")
             self.assertTrue(download_record["downloaded"])
 
+    def test_remember_download_persists_all_related_artifact_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            download_dir = root / "downloads"
+            download_dir.mkdir()
+            archive = download_dir / "windows-floppies.7z"
+            disk_one = download_dir / "Disk1.img"
+            disk_two = download_dir / "Disk2.img"
+            for path in (archive, disk_one, disk_two):
+                path.write_bytes(b"artifact")
+            store = StateStore(root / "state.json", download_dir=download_dir)
+            candidate = Candidate(
+                url="https://archive.org/download/item/windows-floppies.7z",
+                filename=archive.name,
+            )
+
+            store.remember_download(
+                DownloadResult(
+                    plugin_slug="windows_1_04_x86",
+                    candidate=candidate,
+                    path=archive,
+                    downloaded=True,
+                    artifact_paths=[disk_one, disk_two],
+                )
+            )
+
+            download = store.get_plugin_record("windows_1_04_x86")["download"]
+            self.assertEqual(download["path"], "windows-floppies.7z")
+            self.assertEqual(download["artifact_paths"], ["Disk1.img", "Disk2.img"])
+
     def test_state_store_migrates_absolute_download_paths_to_relative(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -130,6 +160,37 @@ class StateStoreTests(unittest.TestCase):
             store = StateStore(state_path, download_dir=download_dir)
 
             self.assertTrue(store.data["plugins"]["ubuntu_lts"]["download"]["downloaded"])
+
+    def test_state_store_recognizes_tracked_sibling_download(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            download_dir = root / "downloads_windows"
+            download_dir.mkdir()
+            sibling_download_dir = root / "downloads"
+            sibling_download_dir.mkdir()
+            (sibling_download_dir / "windows.iso").write_bytes(b"iso")
+            state_path = root / "state.json"
+            payload = {
+                "state_version": STATE_VERSION,
+                "plugins": {
+                    "windows_11_24h2_x64": {
+                        "download": {
+                            "path": "windows.iso",
+                            "filename": "windows.iso",
+                            "artifact_paths": ["windows.iso"],
+                            "downloaded": False,
+                        }
+                    }
+                },
+            }
+            state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            store = StateStore(state_path, download_dir=download_dir)
+
+            download = store.get_plugin_record("windows_11_24h2_x64")["download"]
+            self.assertEqual(download["path"], "../downloads/windows.iso")
+            self.assertEqual(download["artifact_paths"], ["../downloads/windows.iso"])
+            self.assertTrue(download["downloaded"])
 
     def test_remember_download_marks_existing_artifact_available_after_skip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

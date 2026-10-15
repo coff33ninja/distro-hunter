@@ -45,6 +45,7 @@ class PluginSpec:
     module: ModuleType
     ventoy_subdir: str | None = None
     metadata: PluginMetadata | None = None
+    batch_download: bool = False
 
     def discover(self, context: DiscoveryContext) -> list[Candidate]:
         candidates = self.module.discover(context)
@@ -80,6 +81,7 @@ def _build_spec(module: ModuleType, fallback_slug: str) -> PluginSpec:
         module=module,
         ventoy_subdir=getattr(module, "VENTOY_SUBDIR", None),
         metadata=infer_plugin_metadata(slug, module),
+        batch_download=bool(getattr(module, "BATCH_DOWNLOAD", False)),
     )
 
 
