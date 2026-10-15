@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -105,6 +106,14 @@ def _target_for_source(
     return destination_root / relative_subdir / source.name
 
 
+def _transfer_file(source: Path, target: Path) -> None:
+    try:
+        os.replace(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+        source.unlink()
+
+
 def _should_copy_source(source: Path, target: Path) -> bool:
     if not target.exists():
         return True
@@ -146,7 +155,7 @@ def sync_paths_to_ventoy(
         target = _target_for_source(source, destination, settings, route_map)
         ensure_directory(target.parent)
         if _should_copy_source(source, target):
-            shutil.copy2(source, target)
+            _transfer_file(source, target)
             copied.append(target)
     return copied
 
