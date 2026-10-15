@@ -6,13 +6,9 @@ from __future__ import annotations
 class DistroHunterError(Exception):
     """Base exception for all Distro Hunter errors."""
 
-    pass
-
 
 class ChecksumError(DistroHunterError):
     """Base class for checksum-related errors."""
-
-    pass
 
 
 class ChecksumMismatchError(ChecksumError):
@@ -55,8 +51,6 @@ class ChecksumUnavailableError(ChecksumError):
 class DownloadError(DistroHunterError):
     """Base class for download-related errors."""
 
-    pass
-
 
 class DownloadAttemptError(DownloadError):
     """Raised when a download attempt fails.
@@ -79,5 +73,3 @@ class RunLockError(DistroHunterError):
     This prevents concurrent execution of certain commands (discover, run, sync, etc.)
     to avoid conflicts with plugin state and downloads.
     """
-
-    pass

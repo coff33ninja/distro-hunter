@@ -1,0 +1,25 @@
+# Prospector configuration — read by Codacy's Python analysis engine.
+#
+# distro_hunter follows the Google Python Style Guide: docstring summaries
+# start on the first line, with Google-style ``Args:``/``Returns:`` sections.
+#
+# Codacy bundles Prospector with *all* pydocstyle rules enabled, including the
+# numpy/PEP 257-only rules that contradict that style (a known Codacy default —
+# see community.codacy.com/t/d203-and-d213-are-not-required-by-pep-257/237).
+# Prospector's pydocstyle tool only honours a disable list, so the conflicting
+# rules are switched off here to match the code the project actually writes.
+
+pydocstyle:
+  run: true
+  disable:
+    # Summary placement / class-docstring conventions that conflict with a
+    # first-line-summary, no-blank-line style.
+    - D203 # 1 blank line required before class docstring (numpy/PEP 257)
+    - D213 # multi-line docstring summary should start at the second line
+    # numpy/RST-style section formatting; the project uses Google-style
+    # ``Args:``/``Returns:`` sections instead (no dashed underlines).
+    - D406 # section name should end with a newline
+    - D407 # missing dashed underline after section
+    - D408 # section underline should be in the line following the section's name
+    - D409 # section underline should match the length of its name
+    - D413 # missing blank line after last section

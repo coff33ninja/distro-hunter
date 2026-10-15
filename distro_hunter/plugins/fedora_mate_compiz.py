@@ -4,8 +4,8 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora MATE-Compiz"
-PAGE_URL = "https://fedoraproject.org/en/spins/mate/download/"
-REGEX = r"Fedora-MATE_Compiz-Live-x86_64-([\d.-]+)\.iso$"
+PAGE_URL = "https://fedoraproject.org/spins/mate/download/"
+REGEX = r"Fedora-MATE_Compiz-Live-([\d.-]+)\.x86_64\.iso$"
 
 
 discover = build_regex_discover(

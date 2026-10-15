@@ -1,14 +1,29 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from distro_hunter.models import Candidate, DownloadResult, RemoteFileInfo
 from distro_hunter.state import MAX_HISTORY_EVENTS, STATE_VERSION, StateStore
 
 
 class StateStoreTests(unittest.TestCase):
+    def test_save_preserves_previous_state_when_atomic_replace_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            state_path.write_text('{"original": true}', encoding="utf-8")
+            store = StateStore(state_path)
+            store.data["updated"] = True
+
+            with patch.object(os, "replace", side_effect=OSError("replace failed")), self.assertRaisesRegex(OSError, "replace failed"):
+                store.save()
+
+            self.assertEqual(state_path.read_text(encoding="utf-8"), '{"original": true}')
+            self.assertEqual(list(state_path.parent.glob(".state.json.*.tmp")), [])
+
     def test_remember_download_stores_relative_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

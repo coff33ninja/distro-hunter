@@ -155,7 +155,7 @@ class DistroHunter:
             ranked = rank_candidates(candidates)
             selected = choose_best(candidates)
             return DiscoverySelection(plugin=plugin_spec, ranked=ranked, selected=selected)
-        except Exception as exc:
+        except (OSError, TypeError, ValueError) as exc:
             return DiscoverySelection(
                 plugin=plugin_spec,
                 ranked=[],
@@ -254,7 +254,7 @@ class DistroHunter:
                             f"{discovery.plugin.slug}: recovered using fallback candidate {candidate.url}"
                         )
                 break
-            except Exception as exc:
+            except (OSError, TypeError, ValueError, DownloadAttemptError) as exc:
                 last_error = str(exc)
                 failure_url = candidate.url
                 if isinstance(exc, DownloadAttemptError) and exc.remote and exc.remote.final_url:
@@ -348,7 +348,7 @@ class DistroHunter:
         started = perf_counter()
         try:
             ranked = rank_candidates(self._apply_plugin_overrides(plugin_spec.slug, plugin_spec.discover(self.context)))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - doctor must catch any failure
             return DoctorResult(
                 plugin=plugin_spec,
                 status=DOCTOR_CHANGED_PAGE_SHAPE,
@@ -376,7 +376,7 @@ class DistroHunter:
                 etag=headers.get("ETag"),
                 last_modified=headers.get("Last-Modified"),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - doctor must catch any failure
             return DoctorResult(
                 plugin=plugin_spec,
                 status=DOCTOR_DOWNLOAD_HEAD_FAILED,
@@ -589,8 +589,8 @@ class DistroHunter:
                     plugin.slug, plugin.discover(self.context)
                 )
                 ranked = rank_candidates(candidates)
-                current = choose_best(candidates)
-            except Exception as exc:
+                current = ranked[0] if ranked else None
+            except (OSError, TypeError, ValueError) as exc:
                 results.append(
                     ValidateResult(
                         plugin_slug=plugin.slug,

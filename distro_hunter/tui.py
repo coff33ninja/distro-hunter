@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from threading import Event
+from typing import ClassVar
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -129,7 +130,7 @@ class DistroHunterApp(App[None]):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("q", "quit", "Quit"),
         ("/", "focus_filter", "Filter"),
         ("escape", "clear_filter", "Clear Filter"),

@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora Workstation ARM64"
-PAGE_URL = "https://fedoraproject.org/en/workstation/download/"
+PAGE_URL = "https://fedoraproject.org/workstation/download/"
 REGEX = r"Fedora-Workstation-Live-([\d.-]+)\.aarch64\.iso$"
 
 

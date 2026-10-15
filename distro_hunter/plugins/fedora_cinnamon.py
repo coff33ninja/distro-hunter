@@ -4,8 +4,8 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora Cinnamon"
-PAGE_URL = "https://fedoraproject.org/en/spins/cinnamon/download/"
-REGEX = r"Fedora-Cinnamon-Live-x86_64-([\d.-]+)\.iso$"
+PAGE_URL = "https://fedoraproject.org/spins/cinnamon/download/"
+REGEX = r"Fedora-Cinnamon-Live-([\d.-]+)\.x86_64\.iso$"
 
 
 discover = build_regex_discover(

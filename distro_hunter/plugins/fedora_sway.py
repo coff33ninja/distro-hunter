@@ -4,8 +4,8 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora Sway"
-PAGE_URL = "https://fedoraproject.org/en/spins/sway/download/"
-REGEX = r"Fedora-Sway-Live-x86_64-([\d.-]+)\.iso$"
+PAGE_URL = "https://fedoraproject.org/spins/sway/download/"
+REGEX = r"Fedora-Sway-Live-([\d.-]+)\.x86_64\.iso$"
 
 
 discover = build_regex_discover(

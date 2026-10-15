@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,7 +26,14 @@ class StateStore:
 
     def save(self) -> None:
         ensure_directory(self.path.parent)
-        self.path.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+        serialized = json.dumps(self.data, indent=2)
+        temp_path = self.path.parent / f".{self.path.name}.{time.time_ns()}.tmp"
+        try:
+            temp_path.write_text(serialized, encoding="utf-8")
+            os.replace(temp_path, self.path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def get_plugin_record(self, plugin_slug: str) -> dict:
         plugins = self.data.setdefault("plugins", {})
@@ -187,12 +196,10 @@ class StateStore:
         changed = False
         if self.data.get("state_version") != STATE_VERSION:
             self.data["state_version"] = STATE_VERSION
-            changed = True
 
         plugins = self.data.setdefault("plugins", {})
         if not isinstance(self.data.get("mirrors"), dict):
             self.data["mirrors"] = {}
-            changed = True
         for record in plugins.values():
             download = record.get("download")
             if not isinstance(download, dict):

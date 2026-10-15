@@ -446,6 +446,11 @@ def load_settings(config_path: str | Path) -> Settings:
         ),
     )
 
+    if int(download.discovery_workers) < 1:
+        raise ValueError(
+            f"download.discovery_workers must be >= 1; got {download.discovery_workers}"
+        )
+
     ventoy = VentoySettings(
         enabled=ventoy_data.get("enabled", True),
         volume_labels=ventoy_data.get("volume_labels", ["Ventoy"]),

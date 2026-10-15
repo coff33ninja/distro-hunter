@@ -136,7 +136,7 @@ class DownloadManager:
     def _remote_info(self, candidate: Candidate) -> RemoteFileInfo:
         try:
             headers, final_url = self.web.inspect_remote_file(candidate.url)
-        except Exception:
+        except (OSError, ValueError):
             filename = candidate.filename or extract_filename(candidate.url)
             return RemoteFileInfo(
                 url=candidate.url,
@@ -278,8 +278,12 @@ class DownloadManager:
 
     def _download_builtin(self, url: str, destination: Path, progress_callback=None) -> None:
         temp_path = destination.with_suffix(destination.suffix + ".part")
-        self.web.download(url, str(temp_path), progress_callback=progress_callback)
-        temp_path.replace(destination)
+        try:
+            self.web.download(url, str(temp_path), progress_callback=progress_callback)
+            temp_path.replace(destination)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _decompress_bz2(self, archive_path: Path, progress_callback=None) -> Path:
         output_path = archive_path.with_suffix("")
@@ -397,17 +401,18 @@ class DownloadManager:
                 checksum=checksum_result,
             )
 
+        staging_path = local_path.with_suffix(local_path.suffix + ".part")
         try:
             if (
                 self.settings.download.prefer_aria2
                 and self.settings.download.aria2_path
                 and self.settings.download.aria2_path.exists()
             ):
-                self._download_with_aria2(selected, local_path, progress_callback=progress_callback)
+                self._download_with_aria2(selected, staging_path, progress_callback=progress_callback)
             else:
                 self._download_builtin(
                     selected.url,
-                    local_path,
+                    staging_path,
                     progress_callback=(
                         (lambda downloaded, total: progress_callback(downloaded, total, filename))
                         if progress_callback
@@ -415,11 +420,12 @@ class DownloadManager:
                     ),
                 )
 
+            staging_path.replace(local_path)
             checksum_result = self._verify_local_artifact(local_path, expected_checksum)
             final_path = self._finalize_local_artifact(local_path, progress_callback=progress_callback)
         except Exception as exc:
-            if local_path.exists():
-                local_path.unlink()
+            if staging_path.exists():
+                staging_path.unlink()
             raise DownloadAttemptError(str(exc), candidate=selected, remote=remote) from exc
 
         pruned_paths = self._apply_retention(plugin_slug, final_path) if final_path.exists() else []

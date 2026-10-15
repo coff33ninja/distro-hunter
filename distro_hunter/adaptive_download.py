@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,8 @@ from distro_hunter.connection_pool import AdaptiveConnectionPool
 
 if TYPE_CHECKING:
     from distro_hunter.core import DiscoverySelection, DownloadResult
+
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveDownloadManager:
@@ -101,18 +104,12 @@ class AdaptiveDownloadManager:
                 for future in as_completed(futures_to_id):
                     task_id = futures_to_id.pop(future)
 
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        # Record failure for adaptive scaling
-                        self.pool.metrics.record_failure(
-                            task_id % self.pool.get_current_workers()
-                        )
+                    results.append(future.result())
 
                     # Evaluate and potentially scale
                     should_scale, reason = self.pool.evaluate_scaling()
                     if should_scale:
+                        logger.debug("Adaptive pool scaling decision: %s", reason)
                         # Check if we should scale up or down
                         if self.pool.metrics.failing_connections >= 3:
                             self.pool.scale_down()

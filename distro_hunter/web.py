@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -14,10 +15,43 @@ from pathlib import Path
 from distro_hunter.url_utils import extract_links_from_html, normalize_link
 from distro_hunter.utils import ensure_directory
 
+__all__ = ["WebClient", "filter_links", "normalize_link"]
+
 RETRIABLE_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 LINK_WHITESPACE_RE = re.compile(r"\s+")
 CONTENT_RANGE_TOTAL_RE = re.compile(r"bytes\s+\d+-\d+/(\d+|\*)", re.IGNORECASE)
 MIN_DOWNLOAD_TIMEOUT_SECONDS = 120
+CACHE_PUBLISH_ATTEMPTS = 5
+CACHE_PUBLISH_RETRY_SECONDS = 0.02
+
+_CACHE_PUBLISH_LOCKS: dict[str, threading.Lock] = {}
+_CACHE_PUBLISH_LOCKS_GUARD = threading.Lock()
+
+
+def _cache_publish_lock(cache_path: Path) -> threading.Lock:
+    key = str(cache_path)
+    with _CACHE_PUBLISH_LOCKS_GUARD:
+        lock = _CACHE_PUBLISH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _CACHE_PUBLISH_LOCKS[key] = lock
+        return lock
+
+
+def _publish_cache_file(temp_path: Path, cache_path: Path) -> None:
+    last_error: OSError | None = None
+    for attempt in range(CACHE_PUBLISH_ATTEMPTS):
+        try:
+            temp_path.replace(cache_path)
+            return
+        except OSError as exc:
+            last_error = exc
+            if cache_path.exists():
+                return
+            if attempt + 1 < CACHE_PUBLISH_ATTEMPTS:
+                time.sleep(CACHE_PUBLISH_RETRY_SECONDS * (attempt + 1))
+    if last_error is not None:
+        raise last_error
 
 
 class WebClient:
@@ -45,23 +79,48 @@ class WebClient:
         digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
         return self.page_cache_dir / f"{digest}.html"
 
-    def _load_disk_cached_page(self, url: str) -> str | None:
-        cache_path = self._cache_path_for_url(url)
-        if cache_path is None or not cache_path.exists():
-            return None
-        age_seconds = time.time() - cache_path.stat().st_mtime
-        if age_seconds > self.page_cache_ttl_seconds:
-            return None
-        return cache_path.read_text(encoding="utf-8")
+    def _final_url_path_for(self, cache_path: Path) -> Path:
+        return cache_path.with_suffix(".url")
 
-    def _store_disk_cached_page(self, url: str, text: str) -> None:
+    def _load_disk_cached_page(self, url: str) -> tuple[str, str | None] | None:
+        cache_path = self._cache_path_for_url(url)
+        if cache_path is None:
+            return None
+        with _cache_publish_lock(cache_path):
+            if not cache_path.exists():
+                return None
+            age_seconds = time.time() - cache_path.stat().st_mtime
+            if age_seconds > self.page_cache_ttl_seconds:
+                return None
+            try:
+                text = cache_path.read_text(encoding="utf-8")
+            except OSError:
+                return None
+            try:
+                final_url = self._final_url_path_for(cache_path).read_text(
+                    encoding="utf-8"
+                )
+            except OSError:
+                final_url = None
+            return text, (final_url or None)
+
+    def _store_disk_cached_page(self, url: str, text: str, final_url: str) -> None:
         cache_path = self._cache_path_for_url(url)
         if cache_path is None:
             return
         ensure_directory(cache_path.parent)
         temp_path = cache_path.parent / f"{cache_path.name}.{time.time_ns()}.tmp"
-        temp_path.write_text(text, encoding="utf-8")
-        temp_path.replace(cache_path)
+        final_url_path = self._final_url_path_for(cache_path)
+        final_url_temp = cache_path.parent / f"{final_url_path.name}.{time.time_ns()}.tmp"
+        try:
+            temp_path.write_text(text, encoding="utf-8")
+            final_url_temp.write_text(final_url, encoding="utf-8")
+            with _cache_publish_lock(cache_path):
+                _publish_cache_file(temp_path, cache_path)
+                _publish_cache_file(final_url_temp, final_url_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+            final_url_temp.unlink(missing_ok=True)
 
     def _should_retry(self, exc: Exception) -> bool:
         if isinstance(exc, urllib.error.HTTPError):
@@ -122,7 +181,9 @@ class WebClient:
         request = urllib.request.Request(url, headers=request_headers, method=method)
         for attempt in range(1, self.retry_attempts + 1):
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                with urllib.request.urlopen(
+                    request, timeout=self.timeout_seconds
+                ) as response:
                     body = response.read() if read_body else b""
                     return body, response.headers, response.geturl()
             except Exception as exc:
@@ -135,13 +196,16 @@ class WebClient:
         if url not in self._page_cache:
             cached = self._load_disk_cached_page(url)
             if cached is not None:
-                self._page_cache[url] = cached
+                text, final_url = cached
+                self._page_cache[url] = text
+                if final_url:
+                    self._page_final_urls[url] = final_url
             else:
                 body, _, final_url = self._request(url, method="GET")
                 text = body.decode("utf-8", "ignore")
                 self._page_cache[url] = text
                 self._page_final_urls[url] = final_url
-                self._store_disk_cached_page(url, text)
+                self._store_disk_cached_page(url, text, final_url)
         return self._page_cache[url]
 
     def fetch_links(self, url: str) -> list[str]:
@@ -177,7 +241,9 @@ class WebClient:
     def download(self, url: str, destination: str, progress_callback=None) -> None:
         destination_path = Path(destination)
         for attempt in range(1, self.retry_attempts + 1):
-            existing_bytes = destination_path.stat().st_size if destination_path.exists() else 0
+            existing_bytes = (
+                destination_path.stat().st_size if destination_path.exists() else 0
+            )
             request_headers = {"User-Agent": self.user_agent}
             if existing_bytes > 0:
                 request_headers["Range"] = f"bytes={existing_bytes}-"
@@ -187,11 +253,15 @@ class WebClient:
                     request,
                     timeout=self._download_timeout_seconds(),
                 ) as response:
-                    resuming = existing_bytes > 0 and self._response_supports_resume(response)
+                    resuming = existing_bytes > 0 and self._response_supports_resume(
+                        response
+                    )
                     if not resuming:
                         existing_bytes = 0
 
-                    total = self._response_total_bytes(response, resumed_bytes=existing_bytes)
+                    total = self._response_total_bytes(
+                        response, resumed_bytes=existing_bytes
+                    )
                     downloaded = existing_bytes
                     if progress_callback and downloaded:
                         progress_callback(downloaded, total)
@@ -216,7 +286,9 @@ class WebClient:
                 self._sleep_before_retry(attempt)
 
 
-def filter_links(links: Iterable[str], *, include: Iterable[str], exclude: Iterable[str]) -> list[str]:
+def filter_links(
+    links: Iterable[str], *, include: Iterable[str], exclude: Iterable[str]
+) -> list[str]:
     include_terms = [term.lower() for term in include]
     exclude_terms = [term.lower() for term in exclude]
     output: list[str] = []

@@ -84,6 +84,17 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_settings(config_path)
 
+    def test_load_settings_rejects_invalid_discovery_worker_count(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"download": {"discovery_workers": 0}}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, r"download\.discovery_workers.*>= 1"):
+                load_settings(config_path)
+
     def test_load_settings_discovers_aria2_from_path_when_configured_location_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

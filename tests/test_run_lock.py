@@ -31,10 +31,9 @@ class RunLockTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("distro_hunter.run_lock.is_process_running", return_value=False):
-                with run_lock(lock_path, "doctor"):
-                    payload = json.loads(lock_path.read_text(encoding="utf-8"))
-                    self.assertEqual(payload["command"], "doctor")
+            with patch("distro_hunter.run_lock.is_process_running", return_value=False), run_lock(lock_path, "doctor"):
+                payload = json.loads(lock_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["command"], "doctor")
 
             self.assertFalse(lock_path.exists())
 
@@ -46,10 +45,8 @@ class RunLockTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("distro_hunter.run_lock.is_process_running", return_value=True):
-                with self.assertRaises(RunLockError) as context:
-                    with run_lock(lock_path, "doctor"):
-                        pass
+            with patch("distro_hunter.run_lock.is_process_running", return_value=True), self.assertRaises(RunLockError) as context, run_lock(lock_path, "doctor"):
+                pass
 
             self.assertIn("Another Distro Hunter process is already running.", str(context.exception))
             self.assertIn("PID: 1234", str(context.exception))
@@ -83,9 +80,8 @@ class RunLockTests(unittest.TestCase):
             )
 
             output = io.StringIO()
-            with patch("distro_hunter.run_lock.is_process_running", return_value=True):
-                with redirect_stdout(output):
-                    exit_code = cli.main(["--config", str(config_path), "doctor"])
+            with patch("distro_hunter.run_lock.is_process_running", return_value=True), redirect_stdout(output):
+                exit_code = cli.main(["--config", str(config_path), "doctor"])
 
             self.assertEqual(exit_code, 1)
             self.assertIn("already running", output.getvalue())

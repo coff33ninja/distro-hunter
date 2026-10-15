@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora Xfce ARM64"
-PAGE_URL = "https://fedoraproject.org/en/spins/xfce/download/"
+PAGE_URL = "https://fedoraproject.org/spins/xfce/download/"
 REGEX = r"Fedora-Xfce-Live-([\d.-]+)\.aarch64\.iso$"
 
 

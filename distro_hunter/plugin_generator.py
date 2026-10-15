@@ -4,7 +4,6 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from distro_hunter.models import Candidate
@@ -256,10 +255,16 @@ def review_generated_plugin(
 
 
 def validate_generated_plugin(preview: GeneratedPluginPreview, context: DiscoveryContext) -> list[Candidate]:
-    namespace: dict[str, object] = {}
-    exec(preview.source, namespace)
-    module = SimpleNamespace(**namespace)
-    candidates = module.discover(context)
+    link_regex = re.compile(preview.regex, re.IGNORECASE)
+    candidates: list[Candidate] = []
+    for link in context.fetch_links(preview.page_url):
+        lowered = link.lower()
+        if preview.include and not all(term.lower() in lowered for term in preview.include):
+            continue
+        if any(term.lower() in lowered for term in preview.exclude):
+            continue
+        if link_regex.fullmatch(link):
+            candidates.append(Candidate(url=link, source_page=preview.page_url))
     if not candidates:
         raise ValueError("Generated plugin validation returned no candidates")
     return candidates

@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora Budgie"
-PAGE_URL = "https://fedoraproject.org/en/spins/budgie/download/"
+PAGE_URL = "https://fedoraproject.org/spins/budgie/download/"
 REGEX = r"Fedora-Budgie-Live-([\d.-]+)\.x86_64\.iso$"
 
 

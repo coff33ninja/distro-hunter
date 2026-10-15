@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 from distro_hunter.checksums import ExpectedChecksum
 from distro_hunter.config import DownloadSettings, GeneratorSettings, LoggingSettings, PluginSettings, Settings, VentoySettings
+from distro_hunter.exceptions import DownloadAttemptError
 from distro_hunter.downloads import DownloadManager
 from distro_hunter.models import Candidate
 from distro_hunter.state import StateStore
@@ -40,6 +41,12 @@ class FakeWeb:
         Path(destination).write_bytes(self.payload)
         if progress_callback:
             progress_callback(len(self.payload), len(self.payload))
+
+    def fetch_text(self, url: str) -> str:
+        return ""
+
+    def fetch_links(self, url: str) -> list[str]:
+        return []
 
 
 class DownloadManagerTests(unittest.TestCase):
@@ -78,6 +85,29 @@ class DownloadManagerTests(unittest.TestCase):
             self.assertTrue(archive_path.exists())
             self.assertTrue(output_path.exists())
             self.assertEqual(output_path.read_bytes(), b"steam deck image")
+
+    def test_failed_aria2_download_preserves_existing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            download_dir = Path(temp_dir)
+            destination = download_dir / "ubuntu.iso"
+            destination.write_bytes(b"previous valid image")
+            aria2_path = download_dir / "aria2c.exe"
+            aria2_path.write_bytes(b"")
+            settings = self._settings(download_dir)
+            settings.download.aria2_path = aria2_path
+            settings.download.prefer_aria2 = True
+            manager = DownloadManager(settings, FakeState())
+            manager.web = FakeWeb(b"replacement image", "https://example.org/ubuntu.iso")
+
+            def fail_after_partial_write(candidate, staged_path, progress_callback=None) -> None:
+                staged_path.write_bytes(b"partial replacement")
+                raise RuntimeError("aria2 failed")
+
+            manager._resolve_expected_checksum = lambda candidate, remote: None
+            with patch.object(manager, "_download_with_aria2", side_effect=fail_after_partial_write), self.assertRaises(DownloadAttemptError):
+                manager.process("ubuntu_lts", Candidate(url="https://example.org/ubuntu.iso"))
+
+            self.assertEqual(destination.read_bytes(), b"previous valid image")
 
     def test_process_rebuilds_missing_decompressed_image_without_redownloading(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

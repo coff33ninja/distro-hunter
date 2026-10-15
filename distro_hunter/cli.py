@@ -29,7 +29,6 @@ from distro_hunter.plugin_generator import (
 from distro_hunter.plugin_loader import DiscoveryContext
 from distro_hunter.run_lock import RunLockError, default_lock_path, run_lock
 
-
 LOCKED_COMMANDS = {"doctor", "health", "discover", "run", "sync", "tui", "validate"}
 REPORT_FIELDS = [
     "plugin_slug",

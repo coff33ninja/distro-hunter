@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora KDE Plasma ARM64"
-PAGE_URL = "https://fedoraproject.org/en/kde/download/"
+PAGE_URL = "https://fedoraproject.org/kde/download/"
 REGEX = r"Fedora-KDE-Desktop-Live-([\d.-]+)\.aarch64\.iso$"
 
 

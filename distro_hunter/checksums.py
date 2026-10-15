@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+
+from requests.exceptions import RequestException
 
 from distro_hunter.exceptions import ChecksumMismatchError
 from distro_hunter.models import Candidate, ChecksumResult, RemoteFileInfo
@@ -14,6 +17,8 @@ from distro_hunter.url_utils import (
     strip_query_params,
 )
 from distro_hunter.utils import deduplicate
+
+logger = logging.getLogger(__name__)
 
 ALGORITHM_LENGTHS = {
     "sha512": 128,
@@ -44,6 +49,11 @@ def _preferred_algorithms_for_url(url: str) -> list[str]:
     if "sha256" in lowered:
         return ["sha256"]
     return ["sha512", "sha256"]
+
+
+def _append_path_segment(url: str, segment: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, f"{parts.path}{segment}", parts.query, parts.fragment))
 
 
 def _target_names(candidate: Candidate, remote: RemoteFileInfo | None) -> set[str]:
@@ -114,7 +124,7 @@ def checksum_source_urls(web, candidate: Candidate, remote: RemoteFileInfo | Non
     if candidate.source_page:
         try:
             page_links = web.fetch_links(candidate.source_page)
-        except Exception:
+        except RequestException:
             page_links = []
         for link in page_links:
             lowered = link.lower()
@@ -127,12 +137,12 @@ def checksum_source_urls(web, candidate: Candidate, remote: RemoteFileInfo | Non
         stripped = strip_query_params(base_url)
         for algorithm in ("sha512", "sha256"):
             for suffix in DIRECT_SUFFIXES[algorithm]:
-                urls.append(stripped + suffix)
+                urls.append(_append_path_segment(stripped, suffix))
         directory = get_directory_url(base_url)
         if directory:
             for algorithm in ("sha512", "sha256"):
                 for filename in DIRECTORY_FILES[algorithm]:
-                    urls.append(directory + filename)
+                    urls.append(_append_path_segment(directory, filename))
     return deduplicate(urls)
 
 
@@ -159,7 +169,8 @@ def resolve_expected_checksum(web, candidate: Candidate, remote: RemoteFileInfo 
     for url in checksum_source_urls(web, candidate, remote):
         try:
             text = web.fetch_text(url)
-        except Exception:
+        except RequestException:
+            logger.exception("Failed to fetch checksum file %s", url)
             continue
         for algorithm in _preferred_algorithms_for_url(url):
             digest = _extract_checksum(text, algorithm, target_names)

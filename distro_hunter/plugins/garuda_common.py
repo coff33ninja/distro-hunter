@@ -42,7 +42,7 @@ def discover_garuda_flavor(
     try:
         _, final_url = context.web.inspect_remote_file(url)
         filename = extract_filename(final_url)
-    except Exception:
+    except OSError:
         filename = None
 
     return [

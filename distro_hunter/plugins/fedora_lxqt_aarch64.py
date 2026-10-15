@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora LXQt ARM64"
-PAGE_URL = "https://fedoraproject.org/en/spins/lxqt/download/"
+PAGE_URL = "https://fedoraproject.org/spins/lxqt/download/"
 REGEX = r"Fedora-LXQt-Live-([\d.-]+)\.aarch64\.iso$"
 
 

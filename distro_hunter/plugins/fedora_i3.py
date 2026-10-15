@@ -4,7 +4,7 @@ from distro_hunter.plugins.common import build_regex_discover
 
 
 NAME = "Fedora i3"
-PAGE_URL = "https://fedoraproject.org/en/spins/i3/download/"
+PAGE_URL = "https://fedoraproject.org/spins/i3/download/"
 REGEX = r"Fedora-i3-Live-([\d.-]+)\.x86_64\.iso$"
 
 

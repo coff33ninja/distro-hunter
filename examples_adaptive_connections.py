@@ -149,8 +149,7 @@ def example_detailed_metrics():
         ("failing", [(2, 2), (2, 5)]),  # Worker 2: 2 successes, 5 failures
     ]
 
-    worker_id = 0
-    for pattern_name, actions in patterns:
+    for worker_id, (pattern_name, actions) in enumerate(patterns):
         for wid, count in actions:
             for _ in range(count):
                 if "success" in pattern_name or pattern_name == "stable":
@@ -160,8 +159,6 @@ def example_detailed_metrics():
                         pool.metrics.record_failure(worker_id)
                 else:
                     pool.metrics.record_failure(worker_id)
-
-        worker_id += 1
 
     # Redo for clarity
     pool.metrics.get_metrics(0)  # stable

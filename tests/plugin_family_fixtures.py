@@ -294,7 +294,7 @@ FEDORA_CASES = (
     _fedora_case(
         label="Fedora Workstation x86_64",
         module_name="distro_hunter.plugins.fedora_workstation",
-        page_url="https://fedoraproject.org/en/workstation/download/",
+        page_url="https://fedoraproject.org/workstation/download/",
         links=[
             "https://download.example.org/Fedora-Workstation-Live-43-1.6.aarch64.iso",
             "https://download.example.org/Fedora-Workstation-Live-43-1.6.x86_64.iso",
@@ -304,14 +304,14 @@ FEDORA_CASES = (
             filename="Fedora-Workstation-Live-43-1.6.x86_64.iso",
             version="43-1.6",
             arch="x86_64",
-            source_page="https://fedoraproject.org/en/workstation/download/",
+            source_page="https://fedoraproject.org/workstation/download/",
             priority=5,
         ),
     ),
     _fedora_case(
         label="Fedora KDE ARM64",
         module_name="distro_hunter.plugins.fedora_kde_aarch64",
-        page_url="https://fedoraproject.org/en/kde/download/",
+        page_url="https://fedoraproject.org/kde/download/",
         links=[
             "https://download.example.org/Fedora-KDE-Desktop-Live-43-1.6.x86_64.iso",
             "https://download.example.org/Fedora-KDE-Desktop-Live-43-1.6.aarch64.iso",
@@ -321,14 +321,14 @@ FEDORA_CASES = (
             filename="Fedora-KDE-Desktop-Live-43-1.6.aarch64.iso",
             version="43-1.6",
             arch="aarch64",
-            source_page="https://fedoraproject.org/en/kde/download/",
+            source_page="https://fedoraproject.org/kde/download/",
             priority=4,
         ),
     ),
     _fedora_case(
         label="Fedora Xfce x86_64",
         module_name="distro_hunter.plugins.fedora_xfce",
-        page_url="https://fedoraproject.org/en/spins/xfce/download/",
+        page_url="https://fedoraproject.org/spins/xfce/download/",
         links=[
             "https://download.example.org/Fedora-Xfce-Live-43-1.6.x86_64.iso",
             "https://download.example.org/Fedora-Xfce-Live-43-1.6.aarch64.iso",
@@ -338,7 +338,7 @@ FEDORA_CASES = (
             filename="Fedora-Xfce-Live-43-1.6.x86_64.iso",
             version="43-1.6",
             arch="x86_64",
-            source_page="https://fedoraproject.org/en/spins/xfce/download/",
+            source_page="https://fedoraproject.org/spins/xfce/download/",
             priority=5,
         ),
     ),
@@ -486,13 +486,36 @@ MINT_CASES = (
         version="7",
         priority=5,
     ),
-    _mint_case(
+    PluginDiscoveryCase(
         label="Linux Mint Edge",
         module_name="distro_hunter.plugins.linuxmint_edge",
-        page_url="https://linuxmint.com/edition.php?id=314",
-        filename="linuxmint-21.3-cinnamon-64bit-edge.iso",
-        version="21.3-edge",
-        priority=4,
+        link_pages={
+            "https://mirrors.kernel.org/linuxmint/hwe/": [
+                "ftp://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.3-cinnamon-64bit-hwe-6.11.iso",
+                "https://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.3-cinnamon-64bit-hwe-6.11.iso",
+                "https://pub.linuxmint.io/linuxmint/linuxmint-22.3-cinnamon-64bit-hwe-6.11.iso",
+                "https://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.2-cinnamon-64bit-hwe-6.8.iso",
+                "https://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.3-xfce-64bit.iso",
+            ]
+        },
+        expected=(
+            _candidate(
+                url="https://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.3-cinnamon-64bit-hwe-6.11.iso",
+                filename="linuxmint-22.3-cinnamon-64bit-hwe-6.11.iso",
+                version="22.3-hwe",
+                arch="amd64",
+                source_page="https://mirrors.kernel.org/linuxmint/hwe/",
+                priority=4,
+            ),
+            _candidate(
+                url="https://mirrors.kernel.org/linuxmint/hwe/linuxmint-22.2-cinnamon-64bit-hwe-6.8.iso",
+                filename="linuxmint-22.2-cinnamon-64bit-hwe-6.8.iso",
+                version="22.2-hwe",
+                arch="amd64",
+                source_page="https://mirrors.kernel.org/linuxmint/hwe/",
+                priority=4,
+            ),
+        ),
     ),
 )
 

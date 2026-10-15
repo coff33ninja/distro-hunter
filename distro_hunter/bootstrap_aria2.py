@@ -35,7 +35,7 @@ def bootstrap_aria2(base_dir: Path) -> Path | None:
 
     try:
         download_url = _latest_release_url(client)
-    except Exception:
+    except (OSError, ValueError, RuntimeError):
         return None
 
     with TemporaryDirectory() as tmp:
@@ -44,7 +44,7 @@ def bootstrap_aria2(base_dir: Path) -> Path | None:
 
         try:
             client.download(download_url, str(archive_path))
-        except Exception:
+        except OSError:
             return None
 
         if not archive_path.exists():
